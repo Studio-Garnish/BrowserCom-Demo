@@ -1,0 +1,83 @@
+name: Unity Build WebGL
+on: push
+jobs:
+  buildWebGL:
+    name: Build WebGL
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Cache
+        uses: actions/cache@v2
+        with:
+          path: Library
+          key: Library-WebGL
+          restore-keys: Library-
+
+      - name: Build Unity Game
+        uses: game-ci/unity-builder@v2
+        env:
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+        with:
+          allowDirtyBuild: true
+          targetPlatform: WebGL
+
+      - name: Rename files to gameClient
+        run: ls build -R && mkdir -p dev &&
+         cp -a build/WebGL/WebGL/. dev
+         
+      - name: Wipe demo bucket folder
+        uses: keithweaver/aws-s3-github-action@v1.0.0
+        with:
+          command: rm
+          source: s3://studiogarnish-demos/browsercom
+          aws_access_key_id: ${{ secrets.AWS_KEY_ID }}
+          aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws_region: us-east-1
+          flags: --recursive
+         
+      - name: CP local -> s3 dev
+        uses: keithweaver/aws-s3-github-action@v1.0.0
+        with:
+          command: cp
+          source: ./dev/
+          destination: s3://studiogarnish-demos/browsercom/dev
+          flags: --recursive --acl bucket-owner-full-control --acl public-read
+          
+      - name: CP data.gz -> S3 with Metadata
+        uses: keithweaver/aws-s3-github-action@v1.0.0
+        with:
+          command: cp
+          source: ./dev/Build/WebGL.data.gz
+          destination: s3://studiogarnish-demos/browsercom/dev/Build/WebGL.data.gz
+          flags: --acl bucket-owner-full-control --acl public-read --content-encoding gzip --content-type application/octet-stream --metadata-directive REPLACE
+      
+      - name: CP .framework.js.gz -> S3 with Metadata
+        uses: keithweaver/aws-s3-github-action@v1.0.0
+        with:
+          command: cp
+          source: ./dev/Build/WebGL.framework.js.gz
+          destination: s3://studiogarnish-demos/browsercom/dev/Build/WebGL.framework.js.gz
+          flags: --acl bucket-owner-full-control --acl public-read --content-encoding gzip --content-type application/javascript --metadata-directive REPLACE
+
+      - name: CP .wasm.gz -> S3 with Metadata
+        uses: keithweaver/aws-s3-github-action@v1.0.0
+        with:
+          command: cp
+          source: ./dev/Build/WebGL.wasm.gz
+          destination: s3://studiogarnish-demos/browsercom/dev/Build/WebGL.wasm.gz
+          flags: --acl bucket-owner-full-control --acl public-read --content-encoding gzip --content-type application/wasm --metadata-directive REPLACE
+
+      - name: Invalidate CloudFront
+        uses: chetan/invalidate-cloudfront-action@v2
+        env:
+          DISTRIBUTION: "E3U6O8D3IKV6W4"
+          PATHS: "/browsercom/*"
+          AWS_REGION: "us-east-1"
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
